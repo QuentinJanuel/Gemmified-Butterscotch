@@ -170,6 +170,8 @@ typedef struct {
     void (*clearScreen)(Renderer* renderer, uint32_t color, float alpha);
     int32_t (*createSpriteFromSurface)(Renderer* renderer, int32_t surfaceID, int32_t x, int32_t y, int32_t w, int32_t h, bool removeback, bool smooth, int32_t xorig, int32_t yorig);
     void (*deleteSprite)(Renderer* renderer, int32_t spriteIndex);
+    // Optional (nullptr where unsupported): sprite_add. blob is an encoded image file; a horizontal strip of `frames` images.
+    int32_t (*createSpriteFromImage)(Renderer* renderer, const uint8_t* blob, size_t blobSize, int32_t frames, int32_t xorig, int32_t yorig);
     BlendFactors (*gpuGetBlendFactors)(Renderer* renderer);
     int32_t (*gpuGetBlendMode)(Renderer* renderer);
     void (*gpuSetBlendMode)(Renderer* renderer, int32_t mode);

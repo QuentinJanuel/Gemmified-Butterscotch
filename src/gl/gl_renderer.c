@@ -3054,6 +3054,68 @@ static int32_t glCreateSpriteFromSurface(Renderer* renderer, int32_t surfaceID, 
     return (int32_t) spriteIndex;
 }
 
+static int32_t glCreateSpriteFromImage(Renderer* renderer, const uint8_t* blob, size_t blobSize, int32_t frames, int32_t xorig, int32_t yorig) {
+    GLRenderer* gl = (GLRenderer*) renderer;
+    DataWin* dw = renderer->dataWin;
+
+    int w, h;
+    uint8_t* pixels = ImageDecoder_decodeToRgba(blob, blobSize, false, &w, &h);
+    if (pixels == nullptr) return -1;
+    if (1 > frames || w < frames) frames = 1;
+
+    GLuint newTexId;
+    glGenTextures(1, &newTexId);
+    glBindTexture(GL_TEXTURE_2D, newTexId);
+    glTexImage2D(GL_TEXTURE_2D, 0, gl->textureFormat, w, h, 0, GL_RGBA, GL_UNSIGNED_BYTE, pixels);
+    GLCommon_applyTexFilter(renderer->texFilter);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
+    free(pixels);
+
+    uint32_t pageId = findOrAllocTexturePageSlot(gl);
+    gl->glTextures[pageId] = newTexId;
+    gl->textureWidths[pageId] = w;
+    gl->textureHeights[pageId] = h;
+    gl->textureLoaded[pageId] = true;
+
+    int32_t fw = w / frames;
+    int32_t* tpags = (int32_t*) safeMalloc((size_t) frames * sizeof(int32_t));
+    repeat(frames, i) {
+        uint32_t tpagIndex = findOrAllocTpagSlot(dw, gl->originalTpagCount);
+        TexturePageItem* tpag = &dw->tpag.items[tpagIndex];
+        tpag->sourceX = (uint16_t) (i * fw);
+        tpag->sourceY = 0;
+        tpag->sourceWidth = (uint16_t) fw;
+        tpag->sourceHeight = (uint16_t) h;
+        tpag->targetX = 0;
+        tpag->targetY = 0;
+        tpag->targetWidth = (uint16_t) fw;
+        tpag->targetHeight = (uint16_t) h;
+        tpag->boundingWidth = (uint16_t) fw;
+        tpag->boundingHeight = (uint16_t) h;
+        tpag->texturePageId = (int16_t) pageId;
+        tpags[i] = (int32_t) tpagIndex;
+    }
+
+    uint32_t spriteIndex = DataWin_allocSpriteSlot(dw, gl->originalSpriteCount);
+    Sprite* sprite = &dw->sprt.sprites[spriteIndex];
+    sprite->width = (uint32_t) fw;
+    sprite->height = (uint32_t) h;
+    sprite->originX = xorig;
+    sprite->originY = yorig;
+    sprite->marginLeft = 0;
+    sprite->marginTop = 0;
+    sprite->marginRight = fw - 1;
+    sprite->marginBottom = h - 1;
+    sprite->textureCount = (uint32_t) frames;
+    sprite->tpagIndices = tpags;
+    sprite->maskCount = 0;
+    sprite->masks = nullptr;
+
+    logInfo("GL: Created sprite %u (%dx%d, %d frames) from an image file\n", spriteIndex, fw, h, frames);
+    return (int32_t) spriteIndex;
+}
+
 static void glDeleteSprite(Renderer* renderer, int32_t spriteIndex) {
     GLRenderer* gl = (GLRenderer*) renderer;
     DataWin* dw = renderer->dataWin;
@@ -3543,6 +3605,7 @@ Renderer* GLRenderer_create(void) {
     glVtable.clearScreen = glClearScreen;
     glVtable.createSpriteFromSurface = glCreateSpriteFromSurface;
     glVtable.deleteSprite = glDeleteSprite;
+    glVtable.createSpriteFromImage = glCreateSpriteFromImage;
     glVtable.gpuGetBlendFactors = glGpuGetBlendFactors;
     glVtable.gpuGetBlendMode = glGpuGetBlendMode;
     glVtable.gpuSetBlendMode = glGpuSetBlendMode;
