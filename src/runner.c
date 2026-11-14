@@ -4802,6 +4802,7 @@ void Runner_step(Runner* runner) {
     }
 
     Video_executePendingAsyncEvents(runner);
+    Network_dispatchReceived(runner);
 
     // Dispatch collision events
     if (!runner->physics) dispatchCollisionEvents(runner);

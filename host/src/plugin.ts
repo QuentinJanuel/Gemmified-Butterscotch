@@ -24,6 +24,7 @@ import {
   type GameInput,
   type HostServices,
   type IndexedFile,
+  type NetworkConnection,
 } from "../gems/engine";
 import type { PluginManifest } from "../gems/engine/manifest";
 import { MemoryBackend, Vfs, parsePath, type VPath } from "../gems/vfs";
@@ -41,6 +42,7 @@ const WAD_MIN = 8;
 const WAD_MAX = 17;
 
 const BUTTONS = { left: 1, right: 2, middle: 3 } as const;
+const LOOPBACK = ["127.0.0.1", "localhost", "::1"];
 // POSIX file-type bits of a stat mode.
 const S_IFMT = 0o170000;
 const S_IFDIR = 0o040000;
@@ -128,6 +130,9 @@ class Session implements EngineSession {
   private size = { width: 0, height: 0 };
   private readonly held = new Set<number>();
   private readonly pressed = new Set<number>();
+  /** The game's loopback connections (SPEC §14), by the id the runner holds. */
+  private readonly connections = new Map<number, NetworkConnection>();
+  private nextConnection = 1;
   private readonly files: Vfs;
   private readonly onMessage = (event: MessageEvent) => {
     // src/backends/web.c posts the caption to its own window.
@@ -161,6 +166,31 @@ class Session implements EngineSession {
         printErr: (line: string) => console.warn(`butterscotch: ${line}`),
         waitFrame: (ms: number) => this.waitFrame(ms),
         onFileChanged: (path: string) => this.changed(path),
+        // The runner's network_* builtins (src/vm_builtins.c): TCP to this machine, on a port the
+        // host listens on; anything else fails as it would with nothing listening.
+        netConnect: (address: string, port: number) => {
+          const connection = LOOPBACK.includes(address.toLowerCase())
+            ? host.network.connect(port)
+            : null;
+          if (!connection) return 0;
+          this.connections.set(this.nextConnection, connection);
+          return this.nextConnection++;
+        },
+        netSend: (id: number, bytes: Uint8Array) => this.connections.get(id)?.send(bytes),
+        netReceive: (id: number) => {
+          const connection = this.connections.get(id);
+          if (!connection) return null;
+          const bytes = connection.receive();
+          if (bytes.length === 0 && connection.closed) {
+            this.connections.delete(id);
+            return null;
+          }
+          return bytes;
+        },
+        netClose: (id: number) => {
+          this.connections.get(id)?.close();
+          this.connections.delete(id);
+        },
       });
     } catch (error) {
       throw new EngineError("asset-unavailable", String(error));
