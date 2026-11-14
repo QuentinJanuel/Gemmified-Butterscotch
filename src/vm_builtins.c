@@ -338,6 +338,7 @@ static const BuiltinVarEntry BUILTIN_VAR_TABLE[] = {
     { "fps_real", BUILTIN_VAR_FPS_REAL },
     { "friction", BUILTIN_VAR_FRICTION },
     { "game_id", BUILTIN_VAR_GAME_ID },
+    { "game_save_id", BUILTIN_VAR_GAME_SAVE_ID },
     { "gp_axislh", BUILTIN_VAR_GP_AXIS_LH },
     { "gp_axislv", BUILTIN_VAR_GP_AXIS_LV },
     { "gp_axisrh", BUILTIN_VAR_GP_AXIS_RH },
@@ -387,6 +388,8 @@ static const BuiltinVarEntry BUILTIN_VAR_TABLE[] = {
     { "mouse_lastbutton", BUILTIN_VAR_MOUSE_LASTBUTTON },
     { "mouse_x", BUILTIN_VAR_MOUSE_X },
     { "mouse_y", BUILTIN_VAR_MOUSE_Y },
+    { "network_socket_tcp", BUILTIN_VAR_NETWORK_SOCKET_TCP },
+    { "network_type_data", BUILTIN_VAR_NETWORK_TYPE_DATA },
     { "object_index", BUILTIN_VAR_OBJECT_INDEX },
     { "os_3ds", BUILTIN_VAR_OS_3DS },
     { "os_amazon", BUILTIN_VAR_OS_AMAZON },
@@ -629,6 +632,8 @@ RValue VMBuiltins_getVariable(VMContext* ctx, Instance* inst, int16_t builtinVar
         // File system
         case BUILTIN_VAR_PROGRAM_DIRECTORY:
             return RValue_makeString(Runner_getProgramDirectory(runner));
+        // The save folder, which is also where the runner reads and writes files.
+        case BUILTIN_VAR_GAME_SAVE_ID:
         case BUILTIN_VAR_WORKING_DIRECTORY: {
             FileSystem* fs = runner->fileSystem;
             return RValue_makeOwnedString(fs->vtable->resolvePath(fs, ""));
@@ -1202,6 +1207,12 @@ RValue VMBuiltins_getVariable(VMContext* ctx, Instance* inst, int16_t builtinVar
             return RValue_makeReal(GML_BUFFER_WRAP);
         case BUILTIN_VAR_BUFFER_FAST:
             return RValue_makeReal(GML_BUFFER_FAST);
+
+        // Network constants (network_create_socket's type, async_load's "type")
+        case BUILTIN_VAR_NETWORK_SOCKET_TCP:
+            return RValue_makeReal(0);
+        case BUILTIN_VAR_NETWORK_TYPE_DATA:
+            return RValue_makeReal(3);
 
         // Buffer data type constants
         case BUILTIN_VAR_BUFFER_U8:
@@ -20188,6 +20199,139 @@ static RValue builtin_game_change(VMContext* ctx, MAYBE_UNUSED RValue* args, MAY
     return RValue_makeUndefined();
 }
 
+// ===[ NETWORK: a raw TCP client on loopback ]===
+// GameMaker Studio's client functions, for a game that talks to something running beside it:
+// network_create_socket, network_connect_raw, network_send_raw, network_destroy, and the Async
+// Networking event for what arrives. On the web build the page answers through
+// Module.netConnect/netSend/netReceive/netClose; elsewhere nothing listens and connecting fails.
+// A socket id indexes gNetSockets: 0 while unconnected, the page's connection id once connected,
+// -1 once destroyed or closed by the other side.
+static int32_t* gNetSockets = nullptr;
+
+#ifdef __EMSCRIPTEN__
+#include <emscripten.h>
+EM_JS(int, platformNetConnect, (const char* address, int port), {
+    return Module['netConnect'] ? Module['netConnect'](UTF8ToString(address), port) : 0;
+});
+EM_JS(void, platformNetSend, (int id, const uint8_t* data, int size), {
+    Module['netSend'](id, HEAPU8.slice(data, data + size));
+});
+// Fills *out with a malloc'd copy of what arrived and returns its length; -1 once the connection is
+// closed and drained.
+EM_JS(int, platformNetReceive, (int id, uint8_t** out), {
+    const bytes = Module['netReceive'](id);
+    if (bytes === null) return -1;
+    const pointer = _malloc(bytes.length);
+    HEAPU8.set(bytes, pointer);
+    HEAPU32[out >> 2] = pointer;
+    return bytes.length;
+});
+EM_JS(void, platformNetClose, (int id), { Module['netClose'](id); });
+#else
+static int platformNetConnect(MAYBE_UNUSED const char* address, MAYBE_UNUSED int port) { return 0; }
+static void platformNetSend(MAYBE_UNUSED int id, MAYBE_UNUSED const uint8_t* data, MAYBE_UNUSED int size) {}
+static int platformNetReceive(MAYBE_UNUSED int id, MAYBE_UNUSED uint8_t** out) { return -1; }
+static void platformNetClose(MAYBE_UNUSED int id) {}
+#endif
+
+static int32_t* netSocket(int32_t id) {
+    if (0 > id || id >= (int32_t) arrlen(gNetSockets) || gNetSockets[id] < 0) return nullptr;
+    return &gNetSockets[id];
+}
+
+// network_create_socket(type): TCP only; anything else is refused rather than half-supported.
+static RValue builtin_network_create_socket(MAYBE_UNUSED VMContext* ctx, RValue* args, MAYBE_UNUSED int32_t argCount) {
+    if (RValue_toInt32(args[0]) != 0) return RValue_makeReal(-1);
+    arrput(gNetSockets, 0);
+    return RValue_makeReal((GMLReal) (arrlen(gNetSockets) - 1));
+}
+
+// network_connect_raw(socket, address, port): synchronous, as in GameMaker; < 0 when nothing answers.
+static RValue builtin_network_connect_raw(VMContext* ctx, RValue* args, int32_t argCount) {
+    REQUIRE_ARGC_AT_LEAST("network_connect_raw", 3, RValue_makeReal(-1));
+    int32_t* socket = netSocket(RValue_toInt32(args[0]));
+    if (socket == nullptr || *socket != 0) return RValue_makeReal(-1);
+    char* address = RValue_toString(args[1], ctx->runner->dataWin);
+    int connection = platformNetConnect(address, RValue_toInt32(args[2]));
+    free(address);
+    if (0 >= connection) return RValue_makeReal(-1);
+    *socket = connection;
+    return RValue_makeReal(0);
+}
+
+// network_send_raw(socket, buffer, size): sends the buffer's first size bytes; returns how many, or < 0.
+static RValue builtin_network_send_raw(VMContext* ctx, RValue* args, int32_t argCount) {
+    REQUIRE_ARGC_AT_LEAST("network_send_raw", 3, RValue_makeReal(-1));
+    int32_t* socket = netSocket(RValue_toInt32(args[0]));
+    GmlBuffer* buf = gmlBufferGet(ctx->runner, RValue_toInt32(args[1]));
+    if (socket == nullptr || 0 >= *socket || buf == nullptr) return RValue_makeReal(-1);
+    int32_t size = RValue_toInt32(args[2]);
+    if (size < 0) size = 0;
+    if (size > buf->size) size = buf->size;
+    platformNetSend(*socket, buf->data, size);
+    return RValue_makeReal((GMLReal) size);
+}
+
+static RValue builtin_network_destroy(MAYBE_UNUSED VMContext* ctx, RValue* args, MAYBE_UNUSED int32_t argCount) {
+    int32_t* socket = netSocket(RValue_toInt32(args[0]));
+    if (socket != nullptr) {
+        if (*socket > 0) platformNetClose(*socket);
+        *socket = -1;
+    }
+    return RValue_makeUndefined();
+}
+
+void Network_dispatchReceived(Runner* runner) {
+    repeat((int32_t) arrlen(gNetSockets), socketId) {
+        if (0 >= gNetSockets[socketId]) continue;
+        uint8_t* data = nullptr;
+        int size = platformNetReceive(gNetSockets[socketId], &data);
+        if (size < 0) {
+            // Closed by the other side: the socket just stops hearing anything, as in GameMaker.
+            gNetSockets[socketId] = -1;
+            continue;
+        }
+        if (size == 0) continue;
+
+        // Both the buffer and async_load live only for the event, as in GameMaker.
+        int32_t bufferId = gmlBufferCreate(runner, size, GML_BUFFER_GROW, 1);
+        GmlBuffer* buf = gmlBufferGet(runner, bufferId);
+        memcpy(buf->data, data, (size_t) size);
+        buf->usedSize = size;
+        free(data);
+
+        DsMapEntry* map = nullptr;
+        arrput(runner->dsMapPool, map);
+        int32_t mapId = (int32_t) arrlen(runner->dsMapPool) - 1;
+        DsMapEntry** mapPtr = &runner->dsMapPool[mapId];
+        shput(*mapPtr, safeStrdup("type"), RValue_makeReal(3)); // network_type_data
+        shput(*mapPtr, safeStrdup("id"), RValue_makeReal((GMLReal) socketId));
+        shput(*mapPtr, safeStrdup("ip"), RValue_makeOwnedString(safeStrdup("127.0.0.1")));
+        shput(*mapPtr, safeStrdup("buffer"), RValue_makeReal((GMLReal) bufferId));
+        shput(*mapPtr, safeStrdup("size"), RValue_makeReal((GMLReal) size));
+
+        runner->asyncLoadMapId = mapId;
+        Runner_executeEventForAll(runner, EVENT_OTHER, OTHER_ASYNC_NETWORKING);
+        runner->asyncLoadMapId = -1;
+
+        mapPtr = &runner->dsMapPool[mapId];
+        if (*mapPtr != nullptr) {
+            repeat(shlen(*mapPtr), j) {
+                free((*mapPtr)[j].key);
+                RValue_free(&(*mapPtr)[j].value);
+            }
+            shfree(*mapPtr);
+            *mapPtr = nullptr;
+        }
+        buf = gmlBufferGet(runner, bufferId);
+        if (buf != nullptr) {
+            free(buf->data);
+            buf->data = nullptr;
+            buf->isValid = false;
+        }
+    }
+}
+
 static RValue builtin_parameter_count(VMContext* ctx, MAYBE_UNUSED RValue* args, MAYBE_UNUSED int32_t argCount) {
     return RValue_makeReal((int32_t) arrlen(ctx->runner->gameArgs));
 }
@@ -25925,6 +26069,10 @@ void VMBuiltins_registerAll(VMContext* ctx) {
     VM_registerBuiltin(ctx, "game_change", builtin_game_change);
     VM_registerBuiltin(ctx, "parameter_count", builtin_parameter_count);
     VM_registerBuiltin(ctx, "parameter_string", builtin_parameter_string);
+    VM_registerBuiltin(ctx, "network_create_socket", builtin_network_create_socket);
+    VM_registerBuiltin(ctx, "network_connect_raw", builtin_network_connect_raw);
+    VM_registerBuiltin(ctx, "network_send_raw", builtin_network_send_raw);
+    VM_registerBuiltin(ctx, "network_destroy", builtin_network_destroy);
     VM_registerBuiltin(ctx, "shader_set", builtin_shader_set);
     VM_registerBuiltin(ctx, "shader_reset", builtin_shader_reset);
     VM_registerBuiltin(ctx, "shader_current", builtin_shader_current);

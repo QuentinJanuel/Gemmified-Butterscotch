@@ -159,6 +159,7 @@ typedef enum {
 
     // File system
     BUILTIN_VAR_WORKING_DIRECTORY,
+    BUILTIN_VAR_GAME_SAVE_ID,
     BUILTIN_VAR_PROGRAM_DIRECTORY,
 
     // Arguments
@@ -213,6 +214,8 @@ typedef enum {
     // Buffer type constants
     BUILTIN_VAR_BUFFER_FIXED,
     BUILTIN_VAR_BUFFER_GROW,
+    BUILTIN_VAR_NETWORK_SOCKET_TCP,
+    BUILTIN_VAR_NETWORK_TYPE_DATA,
     BUILTIN_VAR_BUFFER_WRAP,
     BUILTIN_VAR_BUFFER_FAST,
 
@@ -281,6 +284,8 @@ typedef enum {
 } BuiltinVarId;
 
 void VMBuiltins_registerAll(VMContext* ctx);
+// Fires the Async Networking event for what arrived on the game's sockets since the last frame.
+void Network_dispatchReceived(struct Runner* runner);
 struct Renderer;
 // Renderer lifecycle/view hooks for the legacy 3D builtins.
 void VMBuiltins_resetD3D(struct Renderer* renderer);
