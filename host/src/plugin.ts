@@ -416,6 +416,15 @@ export function manifest(version: string): PluginManifest {
     homepage: "https://github.com/QuentinJanuel/Gemmified-Butterscotch",
     author: "Dapper Mink",
     updates: "https://gemmified-butterscotch.dappermink.me/latest.json",
+    credits: [
+      {
+        name: "Butterscotch",
+        license: "AGPL-3.0",
+        url: "https://github.com/QuentinJanuel/Gemmified-Butterscotch",
+        copyright: "Copyright (C) the Butterscotch authors and contributors",
+        upstream: "https://github.com/ButterscotchRunner/Butterscotch",
+      },
+    ],
     capabilities: plugin.capabilities,
   };
 }
