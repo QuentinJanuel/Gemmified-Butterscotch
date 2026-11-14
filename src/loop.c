@@ -1503,8 +1503,13 @@ int loop(CommandLineArgs args, const char *argv0) {
                 uint64_t targetFrameTime = 1000000000 / (effectiveGameSpeed * effectiveSpeed);
                 uint64_t nextFrameTime = lastFrameTime + targetFrameTime;
                 platformSleepUntil(nextFrameTime);
+                // Keep the deadline grid: a late wake-up must not push every later frame back. Past two
+                // frames behind (a stall, a long pause) resync instead of bursting to catch up.
+                uint64_t woke = nowNanos();
+                lastFrameTime = ((int64_t)(woke - nextFrameTime) < (int64_t)(2 * targetFrameTime)) ? nextFrameTime : woke;
+            } else {
+                lastFrameTime = nowNanos();
             }
-            lastFrameTime = nowNanos();
         }
 
         saveInputRecording();
