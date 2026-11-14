@@ -272,9 +272,16 @@ bool platformHandleEvents(void) {
     return gRequestedRunnerExit;
 }
 
+// A host that steps the runner one frame at a time installs Module.waitFrame: it receives each
+// frame's wait and settles when the next frame may run. Without one, the wait is a plain sleep.
+EM_ASYNC_JS(void, platformWaitFrame, (int ms), {
+    if (Module['waitFrame']) await Module['waitFrame'](ms);
+    else await new Promise((resolve) => setTimeout(resolve, ms));
+});
+
 void platformSleepUntil(uint64_t time) {
     int64_t remaining = (int64_t) time - (int64_t) nowNanos();
-    emscripten_sleep(remaining > 0 ? (unsigned int) (remaining / 1000000) : 0);
+    platformWaitFrame(remaining > 0 ? (int) (remaining / 1000000) : 0);
 }
 
 // ===[ METADATA THINGS ]===

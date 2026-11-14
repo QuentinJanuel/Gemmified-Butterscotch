@@ -1,0 +1,36 @@
+Gemmified-Butterscotch
+======================
+
+A fork of Butterscotch <https://github.com/ButterscotchRunner/Butterscotch>
+that packages its web build as a plugin for hosts that speak the GEMS plugin
+protocol.
+
+It is based on upstream commit 0c94bfb05e3cb4b8946a38f8085747035dd37f94
+(2026-11-11). Upstream commits after that one are not included.
+
+Butterscotch is licensed under the GNU Affero General Public License,
+version 3 (AGPL-3.0), and so is this fork as a whole; see LICENSE. Copyright
+in the original work is retained by the Butterscotch authors and contributors.
+Modifications in this fork (host/, scripts/, the two engine changes in
+src/backends/web.c and src/overlay_file_system.c, and the release workflows)
+are Copyright (c) 2026 Dapper Mink, under the same AGPL-3.0 licence.
+host/gems/ is a copy of the GEMS plugin plumbing, offered under MIT
+(host/gems/LICENSE) and distributed here as part of the AGPL-3.0 work.
+
+Source
+------
+
+The plugin a host downloads (butterscotch-<version>.zip) is a build of this
+repository. Its Corresponding Source is this repository at the tag
+v<version>, <https://github.com/QuentinJanuel/Gemmified-Butterscotch>, and a
+tarball of it is published beside every build:
+https://gemmified-butterscotch.dappermink.me/<version>/gemmified-butterscotch-<version>-src.tar.gz
+This file and LICENSE ship inside the zip.
+
+Third-party components
+----------------------
+
+The runner (butterscotch.wasm, butterscotch.mjs) links the libraries in
+vendor/ (box2d, bzip2, glad, md5, miniaudio, miniz, mojoal, sha1, stb, wuffs,
+base64, tinyfd) under their own licences, each in its directory, and the
+Emscripten runtime (MIT, <https://github.com/emscripten-core/emscripten>).

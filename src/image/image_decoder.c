@@ -172,7 +172,8 @@ static uint8_t* decodeBz2Qoi(const uint8_t* blob, size_t blobSize, bool gm2022_5
     uint8_t* uncompressed = (uint8_t*) malloc(uncompressedCapacity);
     if (!uncompressed) return nullptr;
 #ifdef USE_WUFFS_IMGDEC
-    wuffs_bzip2__decoder dec;
+    // Static, not on the stack: the decoder is megabytes, more than a wasm stack holds.
+    static wuffs_bzip2__decoder dec;
     wuffs_base__status status = wuffs_bzip2__decoder__initialize(&dec, sizeof(dec), WUFFS_VERSION, 0);
     if (!wuffs_base__status__is_ok(&status)) {
         free(uncompressed);
@@ -232,7 +233,7 @@ uint8_t* ImageDecoder_decodeToRgba(const uint8_t* blob, size_t blobSize, bool gm
     }
 
 #ifdef USE_WUFFS_IMGDEC
-    wuffs_png__decoder dec;
+    static wuffs_png__decoder dec;
     wuffs_base__status status = wuffs_png__decoder__initialize(&dec, sizeof(dec), WUFFS_VERSION, 0);
     if (!wuffs_base__status__is_ok(&status)) return nullptr;
 
