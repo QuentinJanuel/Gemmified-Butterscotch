@@ -1,4 +1,5 @@
 build*/
+!.github/actions/build/
 .gitignore
 .cache
 CMakeUserPresets.json
