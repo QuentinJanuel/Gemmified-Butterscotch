@@ -1,3 +1,100 @@
+# Gemmified-Butterscotch
+
+This is a fork of Butterscotch that packages its web build as a plugin for any host that speaks
+the GEMS plugin protocol. Butterscotch runs GameMaker: Studio games in the browser from their
+`data.win`: it reimplements the GameMaker bytecode runner in C, for WAD versions 8 to 17 (GMS
+1.0.198 to GMS 2.2+; no YYC, no GMRT). The upstream project's README follows
+[below](#-butterscotch-).
+
+## Install
+
+Give a GEMS host this update feed:
+
+```
+https://gemmified-butterscotch.dappermink.me/latest.json
+```
+
+The feed lists only the latest release, and the host uses it to install the engine and keep it
+up to date. A release publishes the plugin as
+`https://gemmified-butterscotch.dappermink.me/<version>/butterscotch-<version>.zip`, with this
+repository's source next to it (see [Licence](#licence)), and makes it the only version in the
+feed. Builds of earlier versions are then deleted.
+
+## The plugin
+
+A plugin is a directory with two parts:
+
+- `plugin.json`: the manifest. It holds `id`, `version`, `apiVersion`, `entry`, `name`,
+  `formats`, `description`, `homepage`, `author`, `updates` (the feed above) and `capabilities`.
+  `host/build.ts` writes it from `host/src/plugin.ts`, so the two always agree.
+- `host.js` (built from `host/src/plugin.ts`): the entry module. Its default export has an
+  `accepts(files)` method, which picks a game's `data.win`, and a `create(host)` method, which
+  returns a session.
+
+The rest of the directory is upstream's web build, `butterscotch.mjs` and `butterscotch.wasm`
+(`PLATFORM=web`, `BACKEND=web`), plus `LICENSE` and `NOTICE`.
+
+The engine runs in the host's own realm, not in a worker: upstream's web build is made for a
+page's main thread (its sound is miniaudio's Web Audio backend on the realm's `AudioContext`, and
+its loop suspends with JSPI, so the page needs a browser with JSPI). It draws into the
+`OffscreenCanvas` the host hands it. The runner owns its loop, so the plugin declares
+`clock: "engine"` and each step is one frame of it. The game's files live in WASMFS for the
+session; the runner reports each write and the plugin mirrors it into the host's store under the
+GEMS `gms1`/`gms2` save-path profile, and places the stored files back at start. `host/gems/`
+holds the plugin interface types and the virtual filesystem the saves go through.
+
+## Build and test
+
+You need the Emscripten SDK (7.0.0 is what releases are built with), CMake, Node 22 and pnpm.
+
+```sh
+pnpm install
+pnpm run typecheck
+pnpm run format:check
+pnpm run lint
+pnpm run test          # the release scripts' tests and host/src/paths.test.ts
+pnpm run build         # upstream's web build (emcmake + cmake), into dist/
+pnpm run build:host    # host.js and plugin.json into host/dist/
+pnpm run package       # the plugin directory, in plugin/
+```
+
+### Releasing
+
+Every pull request is checked by `.github/workflows/pull-request.yml`. A release is started by hand:
+Actions, Release, Run workflow, on `downstream`. It takes the version from the live feed and
+increases the part you choose (patch by default), or takes an exact version. It builds the plugin
+as that version, uploads it and the source tarball, replaces the feed, and creates the `v<version>`
+tag and GitHub release. `package.json`'s version is only a placeholder, so there is never a
+version-bump commit.
+
+## Relation to Butterscotch
+
+This repository is a fork of [Butterscotch](https://github.com/ButterscotchRunner/Butterscotch).
+Its default branch, `downstream`, is upstream commit
+[`0c94bfb`](https://github.com/ButterscotchRunner/Butterscotch/commit/0c94bfb05e3cb4b8946a38f8085747035dd37f94)
+(2026-11-11) plus this fork's changes. `git diff 0c94bfb downstream` lists everything this fork
+changes. Upstream has newer commits that are not merged here. Here is a summary:
+
+- `host/` and `scripts/` are new. They are the plugin's entry module, the protocol code in
+  `host/gems/` and the release tooling. Upstream's workflows are replaced by this fork's two.
+- `src/backends/web.c`: the frame wait goes through `Module.waitFrame` when a host installs one,
+  so a host can step the runner one frame at a time; otherwise it is the sleep it was.
+- `src/overlay_file_system.c`: every write, delete, rename and directory change is reported through
+  `Module.onFileChanged` when a host installs one, so the host can persist the game's saves.
+- `src/image/image_decoder.c`: the Wuffs decoders are static instead of on the stack; they are
+  larger than the web build's wasm stack, so every game overflowed it while loading its textures.
+
+## Licence
+
+Butterscotch is licensed AGPL-3.0 and so is this fork. See [LICENSE](LICENSE) and
+[NOTICE](NOTICE). The plugin a host downloads is a build of this repository; its source is this
+repository at the release's `v<version>` tag, and a tarball of it is published beside every build at
+`https://gemmified-butterscotch.dappermink.me/<version>/gemmified-butterscotch-<version>-src.tar.gz`.
+Both files ship inside the plugin zip. `host/gems/` is MIT (its own LICENSE) and is distributed here
+as part of the AGPL-3.0 work.
+
+---
+
 <div align="center">
 <img width="256" height="256" alt="Butterscotch Logo" src="https://github.com/user-attachments/assets/ef8bdd5c-d407-4b3c-a4d5-07b25e8bbc70" />
 </div>

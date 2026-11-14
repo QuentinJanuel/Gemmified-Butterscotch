@@ -1,4 +1,5 @@
 build*/
+!.github/actions/build/
 .gitignore
 .cache
 CMakeUserPresets.json
@@ -11,3 +12,10 @@ compat/config.mk
 src/android/frontend/.gradle/
 src/android/frontend/app/.cxx/
 src/android/frontend/local.properties
+
+# the GEMS plugin's build output
+/node_modules/
+/dist/
+/host/dist/
+/plugin/
+/*.zip

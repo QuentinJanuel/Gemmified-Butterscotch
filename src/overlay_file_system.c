@@ -26,6 +26,18 @@
 
 // ===[ Helpers ]===
 
+// Tells the page embedding the web build about a path this file system changed (a write, a delete,
+// a rename, a directory made or removed), through Module.onFileChanged when it installed one. That
+// is how a host keeps the game's saves outside WASMFS, which forgets everything on reload.
+#ifdef __EMSCRIPTEN__
+#include <emscripten.h>
+static void notifyChanged(const char* fullPath) {
+    EM_ASM({ if (Module['onFileChanged']) Module['onFileChanged'](UTF8ToString($0)); }, fullPath);
+}
+#else
+static void notifyChanged(MAYBE_UNUSED const char* fullPath) {}
+#endif
+
 // Replaces all backslashes (\) with forward slashes (/) in a path string. (dealing with windows paths)
 static inline char* normalizePath(const char* path) {
     if (path == nullptr) return nullptr;
@@ -164,18 +176,20 @@ static bool overlayWriteFileText(FileSystem* fs, const char* relativePath, const
     char* fullPath = resolveForWrite((OverlayFileSystem*) fs, relativePath);
     ensureParentDir(fullPath);
     FILE* f = fopen(fullPath, "wb");
-    free(fullPath);
-    if (f == nullptr) return false;
+    if (f == nullptr) { free(fullPath); return false; }
 
     size_t len = strlen(contents);
     size_t written = fwrite(contents, 1, len, f);
     fclose(f);
+    notifyChanged(fullPath);
+    free(fullPath);
     return written == len;
 }
 
 static bool overlayDeleteFile(FileSystem* fs, const char* relativePath) {
     char* fullPath = resolveForWrite((OverlayFileSystem*) fs, relativePath);
     int result = remove(fullPath);
+    if (result == 0) notifyChanged(fullPath);
     free(fullPath);
     return result == 0;
 }
@@ -184,6 +198,10 @@ static bool overlayRenameFile(FileSystem* fs, const char* oldRelativePath, const
     char* oldFullPath = resolveForWrite((OverlayFileSystem*) fs, oldRelativePath);
     char* newFullPath = resolveForWrite((OverlayFileSystem*) fs, newRelativePath);
     int result = rename(oldFullPath, newFullPath);
+    if (result == 0) {
+        notifyChanged(oldFullPath);
+        notifyChanged(newFullPath);
+    }
     free(oldFullPath);
     free(newFullPath);
     return result == 0;
@@ -212,11 +230,12 @@ static bool overlayWriteFileBinary(FileSystem* fs, const char* relativePath, con
     char* fullPath = resolveForWrite((OverlayFileSystem*) fs, relativePath);
     ensureParentDir(fullPath);
     FILE* f = fopen(fullPath, "wb");
-    free(fullPath);
-    if (f == nullptr) return false;
+    if (f == nullptr) { free(fullPath); return false; }
 
     size_t written = fwrite(data, 1, (size_t) size, f);
     fclose(f);
+    notifyChanged(fullPath);
+    free(fullPath);
     return written == (size_t) size;
 }
 
@@ -266,6 +285,7 @@ static void overlayBinaryClose(MAYBE_UNUSED FileSystem* fs, void* handle) {
     if (handle == nullptr) return;
     OverlayBinaryHandle* h = (OverlayBinaryHandle*) handle;
     if (h->fp != nullptr) fclose(h->fp);
+    notifyChanged(h->fullPath);
     free(h->fullPath);
     free(h);
 }
@@ -319,6 +339,7 @@ static bool overlayDirectoryExists(FileSystem* fs, const char* relativePath) {
 static bool overlayCreateDirectory(FileSystem* fs, const char* relativePath) {
     char* fullPath = resolveForWrite((OverlayFileSystem*) fs, relativePath);
     int result = overlayMkdir(fullPath);
+    if (result == 0) notifyChanged(fullPath);
     free(fullPath);
     return result == 0;
 }
@@ -326,6 +347,7 @@ static bool overlayCreateDirectory(FileSystem* fs, const char* relativePath) {
 static bool overlayDeleteDirectory(FileSystem* fs, const char* relativePath) {
     char* fullPath = resolveForWrite((OverlayFileSystem*) fs, relativePath);
     int result = overlayRmdir(fullPath);
+    if (result == 0) notifyChanged(fullPath);
     free(fullPath);
     return result == 0;
 }
