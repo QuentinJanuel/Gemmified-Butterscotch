@@ -520,10 +520,9 @@ int loop(CommandLineArgs args, const char *argv0) {
     timeBeginPeriod(1);
 #endif
     char* currentDataWinPath = safeStrdup(args.dataWinPath);
+    // Taken over from args, and freed with the runner below. (It used to be appended to itself here,
+    // which grew it without end as soon as --game-args was given.)
     char** currentGameArgs = args.gameArgs;
-    repeat(arrlen(args.gameArgs), i) {
-        arrput(currentGameArgs, args.gameArgs[i]);
-    }
     // The first argument will ALWAYS be the argv[0]
     arrins(currentGameArgs, 0, safeStrdup(argv0 != nullptr ? argv0 : ""));
 
