@@ -13462,10 +13462,44 @@ static RValue builtin_surface_get_texture(VMContext* ctx, RValue* args, MAYBE_UN
 }
 
 // Sprite functions
-static RValue builtin_sprite_add(VMContext* ctx, RValue* args, MAYBE_UNUSED int32_t argCount) {
-    logStubbedFunction(ctx, "sprite_add");
-    // Return 1, so that a sprite_exists check passes
-    return RValue_makeInt32(1);
+// sprite_add(fname, imgnum, removeback, smooth, xorig, yorig): removeback/smooth are ignored. Returns -1 on failure.
+static RValue builtin_sprite_add(VMContext* ctx, RValue* args, int32_t argCount) {
+    REQUIRE_ARGC_AT_LEAST("sprite_add", 6, RValue_makeReal(-1));
+    Runner* runner = ctx->runner;
+    if (runner->renderer->vtable->createSpriteFromImage == nullptr) return RValue_makeReal(-1);
+    char* path = RValue_toString(args[0], runner->dataWin);
+    uint8_t* data = nullptr;
+    int32_t size = 0;
+    bool ok = runner->fileSystem->vtable->readFileBinary(runner->fileSystem, path, &data, &size);
+    free(path);
+    if (!ok) return RValue_makeReal(-1);
+    int32_t result = runner->renderer->vtable->createSpriteFromImage(runner->renderer, data, (size_t) size, RValue_toInt32(args[1]), RValue_toInt32(args[4]), RValue_toInt32(args[5]));
+    free(data);
+    return RValue_makeReal((GMLReal) result);
+}
+
+// sprite_assign(dst, src): dst takes src's frames and size. shortcut: the frames are shared, not copied, so deleting src would blank dst; upgrade if a game does that.
+static RValue builtin_sprite_assign(VMContext* ctx, RValue* args, MAYBE_UNUSED int32_t argCount) {
+    int32_t dst = RValue_toInt32(args[0]);
+    int32_t src = RValue_toInt32(args[1]);
+    DataWin* dw = ctx->dataWin;
+    if (0 > dst || (uint32_t) dst >= dw->sprt.count || 0 > src || (uint32_t) src >= dw->sprt.count || dst == src) return RValue_makeUndefined();
+    Sprite* d = &dw->sprt.sprites[dst];
+    Sprite* s = &dw->sprt.sprites[src];
+    int32_t* tpags = (int32_t*) safeMalloc((size_t) s->textureCount * sizeof(int32_t));
+    memcpy(tpags, s->tpagIndices, (size_t) s->textureCount * sizeof(int32_t));
+    free(d->tpagIndices);
+    d->tpagIndices = tpags;
+    d->textureCount = s->textureCount;
+    d->width = s->width;
+    d->height = s->height;
+    d->originX = s->originX;
+    d->originY = s->originY;
+    d->marginLeft = s->marginLeft;
+    d->marginRight = s->marginRight;
+    d->marginTop = s->marginTop;
+    d->marginBottom = s->marginBottom;
+    return RValue_makeUndefined();
 }
 
 static RValue builtin_sprite_exists(VMContext* ctx, RValue* args, MAYBE_UNUSED int32_t argCount) {
@@ -25520,6 +25554,7 @@ void VMBuiltins_registerAll(VMContext* ctx) {
 
     // Sprite info
     VM_registerBuiltin(ctx, "sprite_add", builtin_sprite_add);
+    VM_registerBuiltin(ctx, "sprite_assign", builtin_sprite_assign);
     VM_registerBuiltin(ctx, "sprite_exists", builtin_sprite_exists);
     VM_registerBuiltin(ctx, "sprite_get_width", builtin_sprite_get_width);
     VM_registerBuiltin(ctx, "sprite_get_height", builtin_sprite_get_height);
