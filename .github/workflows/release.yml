@@ -5,6 +5,7 @@ name: Release
 #   - the zip goes to https://gemmified-butterscotch.dappermink.me/<version>/butterscotch-<version>.zip,
 #   - this repository at the commit being built, the plugin's Corresponding Source (AGPL-3.0), goes
 #     beside it as gemmified-butterscotch-<version>-src.tar.gz,
+#   - the feed icon (assets/icon.png) goes to the bucket root,
 #   - latest.json is replaced to list only that version (scripts/publish-feed.mjs),
 #   - the GitHub release, and with it the v<version> tag, is created on the commit being built,
 #   - last, the earlier versions' objects are deleted (scripts/prune-old-versions.mjs).
@@ -75,7 +76,9 @@ jobs:
             --file "butterscotch-$VERSION.zip" --content-type application/zip --remote
           pnpm dlx wrangler@4.120.0 r2 object put "gemmified-butterscotch/$VERSION/gemmified-butterscotch-$VERSION-src.tar.gz" \
             --file "gemmified-butterscotch-$VERSION-src.tar.gz" --content-type application/gzip --remote
-          node scripts/publish-feed.mjs gemmified-butterscotch "$FEED" "butterscotch-$VERSION.zip"
+          pnpm dlx wrangler@4.120.0 r2 object put gemmified-butterscotch/icon.png \
+            --file assets/icon.png --content-type image/png --remote
+          node scripts/publish-feed.mjs gemmified-butterscotch "$FEED" "butterscotch-$VERSION.zip" --icon "$FEED/icon.png"
           gh release create "v$VERSION" "butterscotch-$VERSION.zip" "gemmified-butterscotch-$VERSION-src.tar.gz" \
             --target "$GITHUB_SHA" --title "v$VERSION" --notes ""
 
